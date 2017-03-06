@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CURDIR=$(pwd)
-DESTDIR=/usr/local/slock/
+DESTDIR=/usr/local/slock
 BUILDROOT=$(pwd)/buildroot/
 
 NGINX_VERSION=1.10.3
