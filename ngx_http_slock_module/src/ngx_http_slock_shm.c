@@ -12,6 +12,7 @@ static ngx_shm_zone_t *ngx_http_slock_shm_zone = NULL;
 static ngx_int_t ngx_http_slock_init_shm_zone(ngx_shm_zone_t *shm_zone, void *data)
 {
     ngx_http_slock_sh_t *sst;
+    ngx_slab_pool_t *pool = (ngx_slab_pool_t*)shm_zone->shm.addr;
 
     if (data) { /** nginx -s reload **/
         shm_zone->data = data;
@@ -19,16 +20,12 @@ static ngx_int_t ngx_http_slock_init_shm_zone(ngx_shm_zone_t *shm_zone, void *da
         return NGX_OK;
     }
 
-    if ((sst = ngx_slab_alloc((ngx_slab_pool_t*)shm_zone->shm.addr, sizeof(ngx_http_slock_sh_t))) == NULL) {
+    if ((sst = ngx_slab_alloc(pool, sizeof(ngx_http_slock_sh_t))) == NULL) {
         return NGX_ERROR;
     }
 
     shm_zone->data = sst;
-
     ngx_rbtree_init(&sst->rbtree, &sst->sentinel, ngx_rbtree_insert_value);
-
-    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] shm->data: %p",
-            __FUNCTION__, __LINE__, sst);
     ngx_http_slock_shm_zone = shm_zone;
     return NGX_OK;
 }
@@ -70,27 +67,25 @@ ngx_int_t ngx_http_slock_shm_add(ngx_str_t *str_key)
 {
     ngx_shm_zone_t *shm_zone = ngx_http_slock_shm_zone;
     ngx_http_slock_sh_t *sst = shm_zone->data;
+    ngx_slab_pool_t *pool = (ngx_slab_pool_t*)shm_zone->shm.addr;
     ngx_rbtree_node_t *node;
 
     ngx_uint_t key = ngx_crc32_long(str_key->data, str_key->len);
 
-    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] shm->data: %p, key: %V, crc: %d",
-            __FUNCTION__, __LINE__, sst, str_key, key);
-
     /** TODO: Lock **/
+    ngx_shmtx_lock(&pool->mutex);
     if ((node = ngx_http_slock_rbtree_find(&sst->rbtree, key)) != NULL) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] existed.", __FUNCTION__, __LINE__);
+        ngx_shmtx_unlock(&pool->mutex);
         return NGX_ERROR;   // existed
     }
 
-    if ((node = ngx_slab_alloc((ngx_slab_pool_t*)shm_zone->shm.addr, sizeof(ngx_rbtree_node_t))) == NULL) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] no memory.", __FUNCTION__, __LINE__);
+    if ((node = ngx_slab_alloc_locked(pool, sizeof(ngx_rbtree_node_t))) == NULL) {
+        ngx_shmtx_unlock(&pool->mutex);
         return NGX_ERROR; // no memory.
     }
     node->key = key;
     ngx_rbtree_insert(&sst->rbtree, node);
-
-    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] insert %d", __FUNCTION__, __LINE__, key);
+    ngx_shmtx_unlock(&pool->mutex);
 
     return NGX_OK;
 }
