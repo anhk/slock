@@ -11,7 +11,21 @@ static ngx_shm_zone_t *ngx_http_slock_shm_zone = NULL;
 
 static ngx_int_t ngx_http_slock_init_shm_zone(ngx_shm_zone_t *shm_zone, void *data)
 {
-    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d]", __FUNCTION__, __LINE__);
+    ngx_http_slock_sh_t *sst;
+    if (data) {
+        /** TODO **/
+    }
+
+    if ((sst = ngx_slab_alloc((ngx_slab_pool_t*)shm_zone->shm.addr, sizeof(ngx_http_slock_sh_t))) == NULL) {
+        return NGX_ERROR;
+    }
+
+    shm_zone->data = sst;
+
+    ngx_rbtree_init(&sst->rbtree, &sst->sentinel, ngx_rbtree_insert_value);
+
+    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] shm->data: %p",
+            __FUNCTION__, __LINE__, sst);
     ngx_http_slock_shm_zone = shm_zone;
     return NGX_OK;
 }
@@ -35,13 +49,50 @@ ngx_int_t ngx_http_slock_shm_init(ngx_conf_t *cf)
     return NGX_OK;
 }
 
-
-ngx_int_t ngx_http_slock_shm_add(ngx_str_t *key)
+ngx_rbtree_node_t *ngx_http_slock_rbtree_find(ngx_rbtree_t *tree, ngx_uint_t key)
 {
+    ngx_rbtree_node_t *root = tree->root;
+
+    while (root != tree->sentinel) {
+        if (key == root->key) {
+            return root;
+        }
+        root = (key < root->key) ? root->left : root->right;
+    }
+    return NULL;
+}
+
+
+ngx_int_t ngx_http_slock_shm_add(ngx_str_t *str_key)
+{
+    ngx_shm_zone_t *shm_zone = ngx_http_slock_shm_zone;
+    ngx_http_slock_sh_t *sst = shm_zone->data;
+    ngx_rbtree_node_t *node;
+
+    ngx_uint_t key = ngx_crc32_long(str_key->data, str_key->len);
+
+    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] shm->data: %p, key: %V, crc: %d",
+            __FUNCTION__, __LINE__, sst, str_key, key);
+
+    /** TODO: Lock **/
+    if ((node = ngx_http_slock_rbtree_find(&sst->rbtree, key)) != NULL) {
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] existed.", __FUNCTION__, __LINE__);
+        return NGX_ERROR;   // existed
+    }
+
+    if ((node = ngx_slab_alloc((ngx_slab_pool_t*)shm_zone->shm.addr, sizeof(ngx_rbtree_node_t))) == NULL) {
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] no memory.", __FUNCTION__, __LINE__);
+        return NGX_ERROR; // no memory.
+    }
+    node->key = key;
+    ngx_rbtree_insert(&sst->rbtree, node);
+
+    ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] insert %d", __FUNCTION__, __LINE__, key);
+
     return NGX_OK;
 }
 
-ngx_int_t ngx_http_slock_shm_del(ngx_str_t *key)
+ngx_int_t ngx_http_slock_shm_del(ngx_str_t *str_key)
 {
     return NGX_OK;
 }
