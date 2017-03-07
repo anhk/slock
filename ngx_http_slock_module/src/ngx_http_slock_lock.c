@@ -12,5 +12,6 @@ ngx_uint_t ngx_http_slock_lock(ngx_http_request_t *r)
 
 ngx_uint_t ngx_http_slock_unlock(ngx_http_request_t *r)
 {
+    ngx_http_slock_shm_del(&r->unparsed_uri);
     return NGX_OK;
 }

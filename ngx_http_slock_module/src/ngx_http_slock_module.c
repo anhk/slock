@@ -109,10 +109,10 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
     }
 
     if (r->method == NGX_HTTP_GET) { /** GET **/
-        ngx_http_slock_ipc_alert(r->connection->log);
         rc = ngx_http_slock_lock(r);
     } else if (r->method == NGX_HTTP_PUT) { /** PUT **/
         rc = ngx_http_slock_unlock(r);
+        ngx_http_slock_ipc_alert(r->connection->log);
     } else {
         ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
         return NGX_OK;
