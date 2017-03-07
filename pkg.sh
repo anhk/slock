@@ -4,6 +4,13 @@ CURDIR=$(pwd)
 DESTDIR=/usr/local/slock
 BUILDROOT=$(pwd)/buildroot/
 
+build_what=modules
+
+if [ $# = 1 -a "$1" = "all" ]; then
+    build_what=
+fi
+
+
 NGINX_VERSION=1.10.3
 NGINX=nginx-${NGINX_VERSION}.tar.gz
 
@@ -45,11 +52,13 @@ cd $BUILDROOT/nginx-release-${NGINX_VERSION}/
     --without-http-cache \
     --add-dynamic-module=../ngx_http_slock_module/ || exit -1
 
-make -j 2 || exit -1
+make -j 2 $build_what || exit -1
 install -d ${DESTDIR}/{logs,conf,sbin,modules}
 
 ${DESTDIR}/sbin/nginx -s stop
-install -m0755 objs/nginx ${DESTDIR}/sbin/nginx
+if [ "$build_what" = "" ]; then
+    install -m0755 objs/nginx ${DESTDIR}/sbin/nginx
+fi
 install -m0755 objs/ngx_http_slock_module.so ${DESTDIR}/modules
 cd ${CURDIR}
 install -m0644 nginx.conf  ${DESTDIR}/conf/nginx.conf
