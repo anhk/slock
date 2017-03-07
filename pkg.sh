@@ -43,13 +43,14 @@ cd $BUILDROOT/nginx-release-${NGINX_VERSION}/
     --without-http_upstream_zone_module \
     --without-pcre \
     --without-http-cache \
-    --add-module=../ngx_http_slock_module/ || exit -1
+    --add-dynamic-module=../ngx_http_slock_module/ || exit -1
 
 make -j 2 || exit -1
-install -d ${DESTDIR}/{logs,conf,sbin}
+install -d ${DESTDIR}/{logs,conf,sbin,modules}
 
 ${DESTDIR}/sbin/nginx -s stop
 install -m0755 objs/nginx ${DESTDIR}/sbin/nginx
+install -m0755 objs/ngx_http_slock_module.so ${DESTDIR}/modules
 cd ${CURDIR}
 install -m0644 nginx.conf  ${DESTDIR}/conf/nginx.conf
 ${DESTDIR}/sbin/nginx
