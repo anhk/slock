@@ -1,16 +1,14 @@
 
 
-#include <ngx_config.h>
-#include <ngx_core.h>
-#include <ngx_http.h>
 
+#include "ngx_http_slock_module.h"
 #include "ngx_http_slock_lock.h"
+#include "ngx_http_slock_shm.h"
 #include "ngx_http_slock_ipc.h"
 
 /**********************************/
 /***  Definitions                **/
 /**********************************/
-ngx_module_t ngx_http_slock_module;
 
 typedef struct {
     ngx_uint_t slock;           /** on/off **/
@@ -19,7 +17,8 @@ typedef struct {
 static ngx_int_t ngx_http_slock_init_module(ngx_cycle_t *cycle);
 static void * ngx_http_slock_create_srv_conf(ngx_conf_t *cf);
 static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r);
-static ngx_int_t ngx_http_slock_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_slock_init_pre_config(ngx_conf_t *cf);
+static ngx_int_t ngx_http_slock_init_post_config(ngx_conf_t *cf);
 static ngx_int_t ngx_http_slock_init_worker(ngx_cycle_t *cycle);
 
 /**********************************/
@@ -34,8 +33,8 @@ static ngx_command_t  ngx_http_slock_commands[] = {
 };
 
 static ngx_http_module_t ngx_http_slock_module_ctx = {
-    NULL,                           /* preconfiguration */
-    ngx_http_slock_init,            /* postconfiguration */
+    ngx_http_slock_init_pre_config, /* preconfiguration */
+    ngx_http_slock_init_post_config,/* postconfiguration */
 
     NULL,                           /* create main configuration */
     NULL,                           /* init main configuration */
@@ -138,18 +137,24 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
     return rc;
 }
 
-static ngx_int_t ngx_http_slock_init(ngx_conf_t *cf)
+static ngx_int_t ngx_http_slock_init_post_config(ngx_conf_t *cf)
 {
     ngx_http_core_main_conf_t       *cmcf;
     ngx_http_handler_pt             *h;
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_CONTENT_PHASE].handlers);
-
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
+    if (h == NULL) { return NGX_ERROR; }
     *h = ngx_http_slock_content_handler;
+
     return NGX_OK;
 }
+
+static ngx_int_t ngx_http_slock_init_pre_config(ngx_conf_t *cf)
+{
+    if (ngx_http_slock_shm_init(cf) != NGX_OK) {
+        return NGX_ERROR;
+    }
+    return NGX_OK;
+}
+
