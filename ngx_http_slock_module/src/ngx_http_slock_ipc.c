@@ -28,17 +28,19 @@ ngx_int_t ngx_http_slock_ipc_init(ngx_cycle_t *cycle, ngx_int_t workers)
      */
 
     for (i = 0; i < NGX_MAX_PROCESSES; i ++) {
-        ngx_socket_t *socks = ngx_http_slock_socketpairs[s];
+#if 0
         if (i >= workers) {
-            socks[0] = NGX_INVALID_FILE;
-            socks[1] = NGX_INVALID_FILE;
+            ngx_http_slock_socketpairs[i][0] = NGX_INVALID_FILE;
+            ngx_http_slock_socketpairs[i][1] = NGX_INVALID_FILE;
             continue;
         }
+#endif
 
         while (s < last_expected_process && ngx_processes[s].pid != NGX_INVALID_FILE) {
             s++; // find empty existing slot
         }
 
+        ngx_socket_t *socks = ngx_http_slock_socketpairs[s];
         // copypaste from os/unix/ngx_process.c (ngx_spawn_process)
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,

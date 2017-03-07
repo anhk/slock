@@ -12,8 +12,11 @@ static ngx_shm_zone_t *ngx_http_slock_shm_zone = NULL;
 static ngx_int_t ngx_http_slock_init_shm_zone(ngx_shm_zone_t *shm_zone, void *data)
 {
     ngx_http_slock_sh_t *sst;
-    if (data) {
-        /** TODO **/
+
+    if (data) { /** nginx -s reload **/
+        shm_zone->data = data;
+        ngx_http_slock_shm_zone = shm_zone;
+        return NGX_OK;
     }
 
     if ((sst = ngx_slab_alloc((ngx_slab_pool_t*)shm_zone->shm.addr, sizeof(ngx_http_slock_sh_t))) == NULL) {
