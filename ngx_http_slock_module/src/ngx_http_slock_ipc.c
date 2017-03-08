@@ -73,7 +73,7 @@ static void ngx_http_slock_ipc_reader(ngx_event_t *ev)
             return;
         }
 
-        ngx_log_error(NGX_LOG_ERR, ev->log, 0, "cmd: %d, key: %d", alert.cmd, alert.key);
+        ngx_log_error(NGX_LOG_ERR, ev->log, 0, "cmd: %uD, key: %uD", alert.cmd, alert.key);
         callback(&alert);
     }
 }
@@ -114,7 +114,7 @@ ngx_int_t ngx_http_slock_ipc_alert(ipc_alert_t *alert)
         if (socks[0] == NGX_INVALID_FILE) {
             continue;
         }
-        if ((rc = write(socks[0], &alert, sizeof(ipc_alert_t))) != sizeof(ipc_alert_t)) {
+        if ((rc = write(socks[0], alert, sizeof(ipc_alert_t))) != sizeof(ipc_alert_t)) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "write error.");
         }
     }

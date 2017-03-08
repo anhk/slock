@@ -82,6 +82,10 @@ static ngx_int_t ngx_http_slock_init_worker(ngx_cycle_t *cycle)
                     ngx_http_slock_lock_notify)) != NGX_OK) {
         return NGX_ERROR;
     }
+
+    if ((rc = ngx_http_slock_shm_init_worker(cycle)) != NGX_OK) {
+        return NGX_ERROR;
+    }
     return rc;
 }
 
@@ -154,9 +158,13 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
         return rc;
     } else if (rc == NGX_ERROR) { /** 失败 **/
         return NGX_HTTP_FORBIDDEN;
+    } else if (rc == NGX_OK) {
+        rc = NGX_HTTP_OK;
+    } else if (rc == NGX_EAGAIN) {
+        return rc;
     }
 
-    r->headers_out.status = NGX_HTTP_OK;
+    r->headers_out.status = rc;
     r->headers_out.content_length_n = 0;
     r->header_only = 1;
     rc = ngx_http_send_header(r);

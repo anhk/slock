@@ -7,15 +7,20 @@
 
 /**
  * 由ipc模块调用，回调函数
+ * 收到通知，断连或释放锁
  **/
 void ngx_http_slock_lock_notify(ipc_alert_t *alert)
 {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[%s:%d] cmd: %d, key: %uD",
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[%s:%d] cmd: %uD, key: %uD",
             __FUNCTION__, __LINE__, alert->cmd, alert->key);
 }
 
+/**
+ * 客户端断连
+ **/
 void ngx_http_slock_lock_collapse(ngx_http_request_t *r)
 {
+    /** 只有subscriber会断，摘链即可 **/
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] uri: %V",
             __FUNCTION__, __LINE__, &r->unparsed_uri);
 }
@@ -53,11 +58,17 @@ ngx_uint_t ngx_http_slock_unlock(ngx_http_request_t *r)
     ngx_str_t *str_key = &r->unparsed_uri;
     ngx_uint_t key = ngx_crc32_long(str_key->data, str_key->len);
     ngx_uint_t i;
+    ngx_int_t rc;
+
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d]", __FUNCTION__, __LINE__);
 
     ipc_alert_t alert = {
         .cmd = NGX_HTTP_SLOCK_IPC_DEL,
         .key = key
     };
+
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] before send, cmd: %uD, key: %uD",
+            __FUNCTION__, __LINE__, alert.cmd, alert.key);
 
     /** Check token **/
     ngx_list_part_t *part = &r->headers_in.headers.part;
@@ -83,8 +94,11 @@ ngx_uint_t ngx_http_slock_unlock(ngx_http_request_t *r)
         }
     }
 
-    ngx_http_slock_shm_del(key);
-    ngx_http_slock_ipc_alert(&alert);
+    if ((rc = ngx_http_slock_shm_del(key)) == NGX_OK) {
+        ngx_http_slock_ipc_alert(&alert);
+    } else if (rc == NGX_ERROR) {
+        return NGX_HTTP_NOT_FOUND;
+    }
 
     return NGX_OK;
 }
