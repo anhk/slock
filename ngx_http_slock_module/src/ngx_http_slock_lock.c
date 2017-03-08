@@ -6,6 +6,22 @@
 
 
 /**
+* 在共享内存中的key，超时后的回调函数
+**/
+ngx_int_t ngx_http_slock_lock_timeout(ngx_uint_t key)
+{
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[%s:%d], key: %uD",
+            __FUNCTION__, __LINE__, key);
+
+    ipc_alert_t alert = {
+        .cmd = NGX_HTTP_SLOCK_IPC_BAD,
+        .key = key
+    };
+    ngx_http_slock_ipc_alert(&alert);
+
+    return NGX_OK;
+}
+/**
  * 由ipc模块调用，回调函数
  * 收到通知，断连或释放锁
  **/
@@ -13,6 +29,11 @@ void ngx_http_slock_lock_notify(ipc_alert_t *alert)
 {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[%s:%d] cmd: %uD, key: %uD",
             __FUNCTION__, __LINE__, alert->cmd, alert->key);
+    if (alert->cmd == NGX_HTTP_SLOCK_IPC_BAD) {
+        /** 超时 **/
+    } else if (alert->cmd == NGX_HTTP_SLOCK_IPC_DEL) {
+        /** 锁的持有者主动释放 **/
+    }
 }
 
 /**
@@ -72,7 +93,7 @@ ngx_uint_t ngx_http_slock_unlock(ngx_http_request_t *r)
 
     /** Check token **/
     ngx_list_part_t *part = &r->headers_in.headers.part;
-    ngx_table_elt_t *header= part->elts;
+    ngx_table_elt_t *header = part->elts;
 
     for (i = 0;  ; i++) {
         if (i >= part->nelts) {

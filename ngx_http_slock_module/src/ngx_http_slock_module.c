@@ -83,7 +83,8 @@ static ngx_int_t ngx_http_slock_init_worker(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
-    if ((rc = ngx_http_slock_shm_init_worker(cycle)) != NGX_OK) {
+    if ((rc = ngx_http_slock_shm_init_worker(cycle,
+                    ngx_http_slock_lock_timeout)) != NGX_OK) {
         return NGX_ERROR;
     }
     return rc;

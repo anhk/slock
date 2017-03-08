@@ -71,6 +71,8 @@ static void ngx_http_slock_shm_timer_handler(ngx_event_t *timer)
     ngx_http_slock_sh_t *sst = shm_zone->data;
     ngx_slab_pool_t *pool = (ngx_slab_pool_t*)shm_zone->shm.addr;
 
+    shm_timeout_rb callback = timer->data;
+
     ngx_http_slock_sh_node_t *node;
     ngx_queue_t queue, *q, *next;
     ngx_queue_init(&queue);
@@ -83,7 +85,7 @@ static void ngx_http_slock_shm_timer_handler(ngx_event_t *timer)
     while (q != ngx_queue_sentinel(&sst->queue)) {
         next = ngx_queue_next(q);
         node = container_of(q, ngx_http_slock_sh_node_t, qnode);
-        if (now - node->last < 60) {
+        if (now - node->last < 6) {
             break;
         }
         ngx_rbtree_delete(&sst->rbtree, &node->rbnode);
@@ -103,6 +105,7 @@ static void ngx_http_slock_shm_timer_handler(ngx_event_t *timer)
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[%s:%d], delete %uD",
                 __FUNCTION__, __LINE__, node->key);
 
+        callback(node->key);
 
         ngx_slab_free_locked(pool, node);
     }
@@ -110,7 +113,8 @@ static void ngx_http_slock_shm_timer_handler(ngx_event_t *timer)
     ngx_add_timer(timer, 2000);
 }
 
-ngx_int_t ngx_http_slock_shm_init_worker(ngx_cycle_t *cycle)
+ngx_int_t ngx_http_slock_shm_init_worker(ngx_cycle_t *cycle,
+        shm_timeout_rb callback)
 {
     ngx_event_t *timer;
     if ((timer = ngx_calloc(sizeof(ngx_event_t), cycle->log)) == NULL) {
@@ -118,7 +122,7 @@ ngx_int_t ngx_http_slock_shm_init_worker(ngx_cycle_t *cycle)
     }
     timer->handler = ngx_http_slock_shm_timer_handler;
     timer->log = ngx_cycle->log;
-    timer->data = NULL;
+    timer->data = callback;
 
     ngx_add_timer(timer, 2000);
     return NGX_OK;
