@@ -112,11 +112,13 @@ void ngx_http_slock_check_client_abort(ngx_http_request_t *r)
     }
 
     if (rc > 0) {
+        ngx_http_slock_lock_collapse(r);
         ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
     } else if (rc == -1 && err == NGX_EAGAIN) {
         /** do nothing **/
     } else {
         c->read->eof = 1;
+        ngx_http_slock_lock_collapse(r);
         ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
     }
 }
@@ -125,8 +127,6 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
     ngx_http_slock_srv_conf_t *sscf;
-
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d]", __FUNCTION__, __LINE__);
 
     if ((sscf = ngx_http_get_module_srv_conf(r, ngx_http_slock_module)) == NULL) {
         return NGX_DECLINED;
@@ -145,8 +145,7 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
     } else if (r->method == NGX_HTTP_PUT) { /** PUT **/
         rc = ngx_http_slock_unlock(r);
     } else {
-        ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
-        return NGX_OK;
+        return NGX_HTTP_FORBIDDEN;
     }
 
     if (rc == NGX_DONE) { /** 挂住 **/
@@ -154,8 +153,7 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
         r->read_event_handler = ngx_http_slock_check_client_abort;
         return rc;
     } else if (rc == NGX_ERROR) { /** 失败 **/
-        ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
-        return NGX_OK;
+        return NGX_HTTP_FORBIDDEN;
     }
 
     r->headers_out.status = NGX_HTTP_OK;
@@ -163,7 +161,7 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
     r->header_only = 1;
     rc = ngx_http_send_header(r);
     if (rc == NGX_ERROR) {
-        ngx_http_finalize_request(r, rc);
+        return rc;
     } else {
         r->keepalive = 1;
     }
