@@ -112,9 +112,9 @@ void ngx_http_slock_check_client_abort(ngx_http_request_t *r)
     }
 
     if (rc > 0) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "FIXME: we should drop all the data.");
+        ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
     } else if (rc == -1 && err == NGX_EAGAIN) {
-        return;
+        /** do nothing **/
     } else {
         c->read->eof = 1;
         ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
