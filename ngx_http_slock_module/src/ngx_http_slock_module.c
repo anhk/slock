@@ -68,7 +68,8 @@ static ngx_int_t ngx_http_slock_init_module(ngx_cycle_t *cycle)
     ngx_int_t rc;
     /** 在master/init_module阶段 初始化IPC **/
     ngx_core_conf_t *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-    if ((rc = ngx_http_slock_ipc_init(cycle, ccf->worker_processes)) == NGX_OK) {
+    if ((rc = ngx_http_slock_ipc_init(cycle, ccf->worker_processes)) != NGX_OK) {
+        /** FIXME: **/
     }
     return rc;
 }
@@ -77,7 +78,8 @@ static ngx_int_t ngx_http_slock_init_worker(ngx_cycle_t *cycle)
 {
     ngx_int_t rc;
     /** 在worker阶段 初始化IPC **/
-    if ((rc = ngx_http_slock_ipc_init_worker(cycle)) != NGX_OK) {
+    if ((rc = ngx_http_slock_ipc_init_worker(cycle,
+                    ngx_http_slock_lock_notify)) != NGX_OK) {
         return NGX_ERROR;
     }
     return rc;
@@ -95,10 +97,36 @@ static void * ngx_http_slock_create_srv_conf(ngx_conf_t *cf)
     return sscf;
 }
 
+void ngx_http_slock_check_client_abort(ngx_http_request_t *r)
+{
+    ngx_int_t rc;
+    ngx_err_t err;
+    ngx_connection_t *c = r->connection;
+    char buf[1];
+
+    rc = recv(c->fd, buf, 1, MSG_PEEK);
+    err = ngx_socket_errno;
+
+    if (ngx_del_event(c->read, NGX_READ_EVENT, 0) != NGX_OK) {
+        return;
+    }
+
+    if (rc > 0) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "FIXME: we should drop all the data.");
+    } else if (rc == -1 && err == NGX_EAGAIN) {
+        return;
+    } else {
+        c->read->eof = 1;
+        ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+    }
+}
+
 static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
     ngx_http_slock_srv_conf_t *sscf;
+
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d]", __FUNCTION__, __LINE__);
 
     if ((sscf = ngx_http_get_module_srv_conf(r, ngx_http_slock_module)) == NULL) {
         return NGX_DECLINED;
@@ -108,17 +136,22 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
+    if ((rc = ngx_http_discard_request_body(r)) != NGX_OK) {
+        /** FIXME **/
+    }
+
     if (r->method == NGX_HTTP_GET) { /** GET **/
         rc = ngx_http_slock_lock(r);
     } else if (r->method == NGX_HTTP_PUT) { /** PUT **/
         rc = ngx_http_slock_unlock(r);
-        ngx_http_slock_ipc_alert(r->connection->log);
     } else {
         ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
         return NGX_OK;
     }
 
     if (rc == NGX_DONE) { /** 挂住 **/
+        r->count ++;
+        r->read_event_handler = ngx_http_slock_check_client_abort;
         return rc;
     } else if (rc == NGX_ERROR) { /** 失败 **/
         ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);

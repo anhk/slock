@@ -63,21 +63,19 @@ ngx_rbtree_node_t *ngx_http_slock_rbtree_find(ngx_rbtree_t *tree, ngx_uint_t key
 }
 
 
-ngx_int_t ngx_http_slock_shm_add(ngx_str_t *str_key)
+ngx_int_t ngx_http_slock_shm_add(ngx_uint_t key)
 {
     ngx_shm_zone_t *shm_zone = ngx_http_slock_shm_zone;
     ngx_http_slock_sh_t *sst = shm_zone->data;
     ngx_slab_pool_t *pool = (ngx_slab_pool_t*)shm_zone->shm.addr;
     ngx_rbtree_node_t *node;
 
-    ngx_uint_t key = ngx_crc32_long(str_key->data, str_key->len);
-
     /** TODO: Lock **/
     ngx_shmtx_lock(&pool->mutex);
     if ((node = ngx_http_slock_rbtree_find(&sst->rbtree, key)) != NULL) {
         ngx_shmtx_unlock(&pool->mutex);
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] existed.", __FUNCTION__, __LINE__);
-        return NGX_ERROR;   // existed
+        return NGX_DONE;   // existed
     }
 
     if ((node = ngx_slab_alloc_locked(pool, sizeof(ngx_rbtree_node_t))) == NULL) {
@@ -91,14 +89,13 @@ ngx_int_t ngx_http_slock_shm_add(ngx_str_t *str_key)
     return NGX_OK;
 }
 
-ngx_int_t ngx_http_slock_shm_del(ngx_str_t *str_key)
+ngx_int_t ngx_http_slock_shm_del(ngx_uint_t key)
 {
     ngx_shm_zone_t *shm_zone = ngx_http_slock_shm_zone;
     ngx_http_slock_sh_t *sst = shm_zone->data;
     ngx_slab_pool_t *pool = (ngx_slab_pool_t*)shm_zone->shm.addr;
     ngx_rbtree_node_t *node;
 
-    ngx_uint_t key = ngx_crc32_long(str_key->data, str_key->len);
 
     /** TODO: Lock **/
     ngx_shmtx_lock(&pool->mutex);
@@ -107,6 +104,7 @@ ngx_int_t ngx_http_slock_shm_del(ngx_str_t *str_key)
         return NGX_ERROR;   // non-existed
     }
     ngx_rbtree_delete(&sst->rbtree, node);
+    ngx_slab_free_locked(pool, node);
     ngx_shmtx_unlock(&pool->mutex);
     return NGX_OK;
 }

@@ -3,10 +3,6 @@
 
 #define IPC_DATA_SIZE 56
 
-typedef struct {
-    char data[IPC_DATA_SIZE];
-} ipc_alert_t;
-
 /** worker processes of the world, unite. **/
 ngx_socket_t ngx_http_slock_socketpairs[NGX_MAX_PROCESSES][2];
 
@@ -28,14 +24,6 @@ ngx_int_t ngx_http_slock_ipc_init(ngx_cycle_t *cycle, ngx_int_t workers)
      */
 
     for (i = 0; i < NGX_MAX_PROCESSES; i ++) {
-#if 0
-        if (i >= workers) {
-            ngx_http_slock_socketpairs[i][0] = NGX_INVALID_FILE;
-            ngx_http_slock_socketpairs[i][1] = NGX_INVALID_FILE;
-            continue;
-        }
-#endif
-
         while (s < last_expected_process && ngx_processes[s].pid != NGX_INVALID_FILE) {
             s++; // find empty existing slot
         }
@@ -66,6 +54,7 @@ static void ngx_http_slock_ipc_reader(ngx_event_t *ev)
 {
     ngx_int_t rc;
     ipc_alert_t alert;
+    ipc_callback_t callback;
     ngx_connection_t *c;
 
     if (ev->timedout) {
@@ -73,6 +62,7 @@ static void ngx_http_slock_ipc_reader(ngx_event_t *ev)
         return;
     }
     c = ev->data;
+    callback = c->data;
 
     while (1) {
         if ((rc = read(c->fd, &alert, sizeof(ipc_alert_t))) != sizeof(ipc_alert_t)) {
@@ -83,14 +73,15 @@ static void ngx_http_slock_ipc_reader(ngx_event_t *ev)
             return;
         }
 
-        ngx_log_error(NGX_LOG_ERR, ev->log, 0, "%s", alert.data);
+        ngx_log_error(NGX_LOG_ERR, ev->log, 0, "cmd: %d, key: %d", alert.cmd, alert.key);
+        callback(&alert);
     }
 }
 
 
 
 /** 此函数在init_worker时，由各个子进程调用 **/
-ngx_int_t ngx_http_slock_ipc_init_worker(ngx_cycle_t *cycle)
+ngx_int_t ngx_http_slock_ipc_init_worker(ngx_cycle_t *cycle, ipc_callback_t callback)
 {
     ngx_connection_t *c;
     ngx_socket_t *socks = ngx_http_slock_socketpairs[ngx_process_slot];
@@ -103,7 +94,7 @@ ngx_int_t ngx_http_slock_ipc_init_worker(ngx_cycle_t *cycle)
     if ((c = ngx_get_connection(socks[1], cycle->log)) == NULL) {
         return NGX_ERROR;
     }
-    c->data = NULL;
+    c->data = callback;
     c->read->handler = ngx_http_slock_ipc_reader;
     c->read->log = cycle->log;
     c->write->handler = NULL;
@@ -113,13 +104,10 @@ ngx_int_t ngx_http_slock_ipc_init_worker(ngx_cycle_t *cycle)
     return NGX_OK;
 }
 
-
-
-ngx_int_t ngx_http_slock_ipc_alert(ngx_log_t *log)
+ngx_int_t ngx_http_slock_ipc_alert(ipc_alert_t *alert)
 {
     ngx_int_t slot;
     ngx_int_t rc;
-    ipc_alert_t alert = {"Hello World!"};
 
     for (slot = 0; slot < NGX_MAX_PROCESSES; slot ++) {
         ngx_socket_t *socks = ngx_http_slock_socketpairs[slot];
@@ -127,7 +115,7 @@ ngx_int_t ngx_http_slock_ipc_alert(ngx_log_t *log)
             continue;
         }
         if ((rc = write(socks[0], &alert, sizeof(ipc_alert_t))) != sizeof(ipc_alert_t)) {
-            ngx_log_error(NGX_LOG_ERR, log, 0, "write error.");
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "write error.");
         }
     }
     return NGX_OK;
