@@ -77,16 +77,23 @@ static ngx_int_t ngx_http_slock_init_module(ngx_cycle_t *cycle)
 static ngx_int_t ngx_http_slock_init_worker(ngx_cycle_t *cycle)
 {
     ngx_int_t rc;
-    /** 在worker阶段 初始化IPC **/
+    /** 在worker阶段，初始化IPC **/
     if ((rc = ngx_http_slock_ipc_init_worker(cycle,
                     ngx_http_slock_lock_notify)) != NGX_OK) {
         return NGX_ERROR;
     }
 
+    /** 在worker阶段，初始化共享内存 **/
     if ((rc = ngx_http_slock_shm_init_worker(cycle,
                     ngx_http_slock_lock_timeout)) != NGX_OK) {
         return NGX_ERROR;
     }
+
+    /** 在worker阶段，初始化lock service **/
+    if ((rc = ngx_http_slock_lock_init_worker(cycle)) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
     return rc;
 }
 

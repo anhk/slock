@@ -2,12 +2,6 @@
 #include "ngx_http_slock_module.h"
 #include "ngx_http_slock_shm.h"
 
-
-#define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-
-
 typedef struct ngx_http_slock_sh_s {
     ngx_rbtree_t rbtree;
     ngx_rbtree_node_t sentinel;
@@ -85,7 +79,7 @@ static void ngx_http_slock_shm_timer_handler(ngx_event_t *timer)
     while (q != ngx_queue_sentinel(&sst->queue)) {
         next = ngx_queue_next(q);
         node = container_of(q, ngx_http_slock_sh_node_t, qnode);
-        if (now - node->last < 6) {
+        if (now - node->last < 60) {
             break;
         }
         ngx_rbtree_delete(&sst->rbtree, &node->rbnode);

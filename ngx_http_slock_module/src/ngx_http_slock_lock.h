@@ -13,3 +13,4 @@ ngx_uint_t ngx_http_slock_unlock(ngx_http_request_t *r);
 void ngx_http_slock_lock_collapse(ngx_http_request_t *r);
 
 ngx_int_t ngx_http_slock_lock_timeout(ngx_uint_t key);
+ngx_int_t ngx_http_slock_lock_init_worker(ngx_cycle_t *cycle);
