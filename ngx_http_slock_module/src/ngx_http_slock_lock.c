@@ -132,7 +132,7 @@ void ngx_http_slock_lock_notify(ipc_alert_t *alert)
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[%s:%d] cmd: %uD, key: %uD",
             __FUNCTION__, __LINE__, alert->cmd, alert->key);
     if (alert->cmd == NGX_HTTP_SLOCK_IPC_BAD) { /** 超时 **/
-        slock_rbtree_delete(alert->key, NULL, NGX_HTTP_NOT_FOUND);
+        slock_rbtree_delete(alert->key, NULL, NGX_HTTP_GATEWAY_TIME_OUT);
     } else if (alert->cmd == NGX_HTTP_SLOCK_IPC_DEL) { /** 锁的持有者主动释放 **/
         slock_rbtree_delete(alert->key, NULL, NGX_HTTP_OK);
     }
