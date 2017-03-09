@@ -1,11 +1,13 @@
 # slock  
 
+```
 GET:  
-    201: get lock  
-    suspend: wait and get:  
-            200: get ready  
-            201: get lock  
+    200 with token: get lock  
+    200 without token: suspend and return.
     403: error  
+    504: timeout
 
 PUT:  
     200: put lock ok  
+    404: put lock error
+```
