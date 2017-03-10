@@ -119,6 +119,7 @@ ngx_int_t ngx_http_slock_lock_timeout(ngx_uint_t key)
         .cmd = NGX_HTTP_SLOCK_IPC_BAD,
         .key = key
     };
+    ngx_http_slock_shm_del(key);
     ngx_http_slock_ipc_alert(&alert);
 
     return NGX_OK;
