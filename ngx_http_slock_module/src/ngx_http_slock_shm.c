@@ -166,6 +166,31 @@ ngx_int_t ngx_http_slock_shm_add(ngx_uint_t key)
     return NGX_OK;
 }
 
+ngx_int_t ngx_http_slock_shm_check_and_reorder(ngx_uint_t key)
+{
+    ngx_shm_zone_t *shm_zone = ngx_http_slock_shm_zone;
+    ngx_http_slock_sh_t *sst = shm_zone->data;
+    ngx_slab_pool_t *pool = (ngx_slab_pool_t*)shm_zone->shm.addr;
+    ngx_rbtree_node_t *rbnode;
+    ngx_http_slock_sh_node_t *node;
+
+    ngx_shmtx_lock(&pool->mutex);
+    if ((rbnode = ngx_http_slock_rbtree_find(&sst->rbtree, key)) != NULL) {
+
+        node = container_of(rbnode, ngx_http_slock_sh_node_t, rbnode);
+        node->last = ngx_time();
+        ngx_queue_remove(&node->qnode);
+        ngx_queue_insert_tail(&sst->queue, &node->qnode);
+
+        ngx_shmtx_unlock(&pool->mutex);
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "[%s:%d] existed.", __FUNCTION__, __LINE__);
+        return NGX_OK;   // existed
+    }
+    ngx_shmtx_unlock(&pool->mutex);
+
+    return NGX_ERROR;
+}
+
 ngx_int_t ngx_http_slock_shm_del(ngx_uint_t key)
 {
     ngx_shm_zone_t *shm_zone = ngx_http_slock_shm_zone;

@@ -112,12 +112,10 @@ static void * ngx_http_slock_create_srv_conf(ngx_conf_t *cf)
 void ngx_http_slock_check_client_abort(ngx_http_request_t *r)
 {
     ngx_int_t rc;
-    ngx_err_t err;
     ngx_connection_t *c = r->connection;
     char buf[1];
 
     rc = recv(c->fd, buf, 1, MSG_PEEK);
-    err = ngx_socket_errno;
 
     if (ngx_del_event(c->read, NGX_READ_EVENT, 0) != NGX_OK) {
         return;
@@ -126,7 +124,7 @@ void ngx_http_slock_check_client_abort(ngx_http_request_t *r)
     if (rc > 0) {
         ngx_http_slock_lock_collapse(r);
         ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
-    } else if (rc == -1 && err == NGX_EAGAIN) {
+    } else if (rc == -1 && ngx_socket_errno == NGX_EAGAIN) {
         /** do nothing **/
     } else {
         c->read->eof = 1;
@@ -148,14 +146,25 @@ static ngx_int_t ngx_http_slock_content_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
-    if ((rc = ngx_http_discard_request_body(r)) != NGX_OK) {
-        /** FIXME **/
-    }
-
     if (r->method == NGX_HTTP_GET) { /** GET **/
+        ngx_http_discard_request_body(r);
         rc = ngx_http_slock_lock(r);
     } else if (r->method == NGX_HTTP_PUT) { /** PUT **/
+        ngx_http_discard_request_body(r);
         rc = ngx_http_slock_unlock(r);
+    } else if (r->method == NGX_HTTP_POST) { /** POST **/
+        /** TODO: 改成nginx自带的读请求  **/
+#if 1
+        r->count ++;
+        r->read_event_handler = ngx_http_slock_publisher;
+        ngx_http_slock_publisher(r);
+#else
+        rc = ngx_http_read_client_request_body(r, ngx_http_slock_publisher);
+        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+            return rc;
+        }
+#endif
+        return NGX_DONE;
     } else {
         return NGX_HTTP_FORBIDDEN;
     }
