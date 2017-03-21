@@ -16,6 +16,14 @@ typedef struct {
     ngx_http_request_t *r;
 } slock_item_t;
 
+
+/**
+ * 目前用在publisher
+ **/
+typedef struct {
+    ngx_int_t len;  /** 已经处理的数据长度 **/
+} slock_ctx_t ;
+
 static ngx_rbtree_t slock_tree;
 static ngx_rbtree_node_t slock_sentinel;
 
@@ -87,7 +95,7 @@ static ngx_int_t slock_rbtree_add(ngx_uint_t key, ngx_http_request_t *r)
 }
 
 
-__attribute__((unused))
+    __attribute__((unused))
 static ngx_int_t slock_rbtree_entry(ngx_uint_t key,
         slock_item_process process, void *priv)
 {
@@ -132,38 +140,6 @@ static ngx_int_t slock_rbtree_delete(ngx_uint_t key, ngx_http_request_t *r)
     ngx_queue_remove(&item->qnode); /** 从队列中摘链 **/
     ngx_free(item);
 
-    /** 扫描该key下边的等待请求队列，找到需要操作的request  **/
-#if 0
-    for (q = ngx_queue_head(&head->queue);
-            q != ngx_queue_sentinel(&head->queue);) {
-        slock_item_t *item = container_of(q, slock_item_t, qnode);
-        next = ngx_queue_next(q);
-
-        /** 如果r==NULL，则删除该key的所有等待队列 **/
-        if (r == NULL || item->r == r) { /** THIS IT IS **/
-            ngx_queue_remove(q); /** 从队列中摘链 **/
-            if (code > 0) {
-                if (code == NGX_HTTP_OK) {
-                    //r = item->r;
-                    item->r->headers_out.status = code;
-                    item->r->headers_out.content_length_n = 0;
-                    item->r->header_only = 1;
-                    rc = ngx_http_send_header(item->r);
-                    if (rc == NGX_ERROR) {
-                        code = rc; /** return rc **/
-                    } else {
-                        item->r->keepalive = 1;
-                    }
-                }
-
-                ngx_http_finalize_request(item->r, code);
-            }
-            ngx_free(item);
-        }
-        q = next;
-    }
-#endif
-
     /** 如果该key的等待队列为空，则删除该key **/
     if (ngx_queue_empty(&head->queue)) {
         ngx_rbtree_delete(&slock_tree, &head->rbnode);
@@ -200,17 +176,6 @@ static ngx_int_t slock_rbtree_destroy(ngx_uint_t key,
         ngx_free(head);
     }
 
-#if 0
-    for (q = ngx_queue_head(&head->queue);
-            q != ngx_queue_sentinel(&head->queue);) {
-        slock_item_t *item = container_of(q, slock_item_t, qnode);
-        next = ngx_queue_next(q);
-
-        slock_item_process(item, priv);
-        q = next;
-    }
-#endif
-
     return NGX_OK;
 }
 
@@ -224,24 +189,29 @@ static void ngx_http_send_ok(ngx_http_request_t *r, void *priv)
 {
     ngx_int_t rc;
 
-    r->headers_out.status = NGX_HTTP_OK;
-    r->headers_out.content_length_n = 0;
-    r->header_only = 1;
-    rc = ngx_http_send_header(r);
-    if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
-        ngx_http_finalize_request(r, rc);
-        return;
+    if (!r->header_sent) {
+        r->headers_out.status = NGX_HTTP_OK;
+        r->headers_out.content_length_n = 0;
+        r->header_only = 1;
+        rc = ngx_http_send_header(r);
+        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+            ngx_http_finalize_request(r, rc);
+            return;
+        }
+        r->keepalive = 1;
+        ngx_http_finalize_request(r, NGX_HTTP_OK);
     } else {
         r->keepalive = 1;
+        ngx_http_send_special(r, NGX_HTTP_LAST);
+        ngx_http_finalize_request(r, NGX_HTTP_OK);
     }
-    ngx_http_finalize_request(r, NGX_HTTP_OK);
 }
 
     __attribute__((unused))
 static void ngx_http_send_data(ngx_http_request_t *r, void *priv)
 {
     ipc_alert_t *alert = priv;
-//    ngx_connection_t *c = r->connection;
+    //    ngx_connection_t *c = r->connection;
     ngx_int_t rc;
 
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] send data to %p, fd=%d",
@@ -264,10 +234,14 @@ static void ngx_http_send_data(ngx_http_request_t *r, void *priv)
         out.next = NULL;
 
         b->flush = 1;
-        b->pos = alert->data;
-        b->last = alert->data + alert->datalen;
+        b->pos = alert ? alert->data : (u_char*)"";
+        b->last = b->pos + (alert ? alert->datalen : 0);
         b->memory = 1;
-        b->last_buf = 0;
+        if (alert == NULL || alert->datalen == 0) {
+            b->last_buf = 1;
+        } else {
+            b->last_buf = 0;
+        }
 
         rc = ngx_http_output_filter(r, &out);
         if (rc == NGX_ERROR) {
@@ -275,17 +249,6 @@ static void ngx_http_send_data(ngx_http_request_t *r, void *priv)
             return;
         }
     }
-
-#if 0
-    rc = write(c->fd, alert->data, alert->datalen);
-    if (rc < 0) {
-        ngx_http_finalize_request(r, rc);
-        return;
-    }
-    if (rc != alert->datalen) {
-        /** TODO: **/
-    }
-#endif
 }
 
 /**
@@ -467,79 +430,83 @@ void ngx_http_slock_publisher(ngx_http_request_t *r)
 
     /** Get Request Body **/
     {
-#if 0
-        ngx_chain_t *cl;
-        size_t len;
-        u_char *p, *buf;
-#endif
-
         size_t pread;
-
-        pread = r->header_in->last - r->header_in->pos;
-
-        if (pread == 0) {
-            /** 没有预读数据，从socket读入 **/
-            ngx_connection_t *c = r->connection;
-            ipc_alert_t alert = {
-                .cmd = NGX_HTTP_SLOCK_IPC_DATA,
-                .key = key
-            };
-
-            alert.datalen = read(c->fd, alert.data, IPC_DATALEN);
-            //rc = (rc == IPC_DATALEN) ? IPC_DATALEN - 1 : rc;
-
-            if (alert.datalen == -1 && ngx_socket_errno == NGX_EAGAIN) {
-                return;
-            } else if (alert.datalen <= 0) { /** check client abort **/
-                c->read->eof = 1;
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] close.",
-                        __FUNCTION__, __LINE__);
-                ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
-                return;
-            }
-
-            ngx_str_t str = {
-                .len = alert.datalen,
-                .data = alert.data,
-            };
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] %V",
-                    __FUNCTION__, __LINE__, &str);
-            ngx_http_slock_ipc_alert(&alert);
-            return;
-        }
-
-        ngx_str_t str = {
-            .len = pread,
-            .data = r->header_in->pos,
-        };
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] %V",
-                __FUNCTION__, __LINE__, &str);
+        ngx_int_t len = r->headers_in.content_length_n;
+        ngx_int_t chunked = r->headers_in.chunked;
 
         ipc_alert_t alert = {
             .cmd = NGX_HTTP_SLOCK_IPC_DATA,
             .key = key
         };
 
-        alert.datalen = pread > IPC_DATALEN ? IPC_DATALEN : pread;
-        ngx_memcpy(alert.data, r->header_in->pos, pread);
-        ngx_http_slock_ipc_alert(&alert);
+        slock_ctx_t *ctx;
 
-        r->header_in->pos = r->header_in->last;
+        if ((ctx = ngx_http_get_module_ctx(r, ngx_http_slock_module)) == NULL) {
+            ctx = ngx_pcalloc(r->pool, sizeof(slock_ctx_t));
+            if (ctx == NULL) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] ngx_pcalloc return NULL",
+                        __FUNCTION__, __LINE__);
+                ngx_http_finalize_request(r, NGX_HTTP_SERVICE_UNAVAILABLE);
+                return;
+            }
+            ngx_http_set_ctx(r, ctx, ngx_http_slock_module);
+        }
+
+        pread = r->header_in->last - r->header_in->pos;
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "len: %d", len);
+
+        if (chunked) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "chunked");
+        }
+
+        if (pread == 0) {
+            /** 没有预读数据，从socket读入 **/
+            ngx_connection_t *c = r->connection;
+
+            while (1) {
+                alert.datalen = read(c->fd, alert.data, IPC_DATALEN);
+
+                if (alert.datalen == -1 && ngx_socket_errno == NGX_EAGAIN) {
+                    break;
+                } else if (alert.datalen <= 0) { /** check client abort **/
+                    c->read->eof = 1;
+                    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] close.",
+                            __FUNCTION__, __LINE__);
+                    ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+                    return;
+                }
+
+                ngx_str_t str = {
+                    .len = alert.datalen,
+                    .data = alert.data,
+                };
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] %V",
+                        __FUNCTION__, __LINE__, &str);
+                ngx_http_slock_ipc_alert(&alert);
+                ctx->len += alert.datalen;
+            }
+            goto done;
+        }
+
+        while (pread != 0) {
+            alert.datalen = pread > IPC_DATALEN ? IPC_DATALEN : pread;
+            ngx_memcpy(alert.data, r->header_in->pos, pread);
+            ngx_http_slock_ipc_alert(&alert);
+
+            r->header_in->pos += alert.datalen;
+            pread = r->header_in->last - r->header_in->pos;
+            ctx->len += alert.datalen;
+        }
+done:
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "[%s:%d] ctx->len: %d, cl: %d",
+                __FUNCTION__, __LINE__,
+                ctx->len, r->headers_in.content_length_n);
+
+        if (r->headers_in.content_length_n != -1 &&
+                ctx->len >= r->headers_in.content_length_n) {
+            ngx_http_send_ok(r, NULL);
+        }
     }
-
-#if 0
-
-    ipc_alert_t alert = {
-        .cmd = NGX_HTTP_SLOCK_IPC_DATA,
-        .key = key
-    };
-#endif
-
-    //rc = read(c->fd, alert.data, IPC_DATALEN);
-    //rc = (rc == IPC_DATALEN) ? IPC_DATALEN - 1 : rc;
-    //alert.data[rc] = 0;
-
-    //ngx_http_slock_ipc_alert(&alert);
 }
 
 ngx_int_t ngx_http_slock_lock_init_worker(ngx_cycle_t *cycle)
