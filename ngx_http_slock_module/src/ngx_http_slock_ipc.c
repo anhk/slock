@@ -23,7 +23,7 @@ ngx_int_t ngx_http_slock_ipc_init(ngx_cycle_t *cycle, ngx_int_t workers)
      * advance. Meaning the spawning logic must be copied to the T.
      */
 
-    for (i = 0; i < NGX_MAX_PROCESSES; i ++) {
+    for (i = 0; i < workers; i ++) {
         while (s < last_expected_process && ngx_processes[s].pid != NGX_INVALID_FILE) {
             s++; // find empty existing slot
         }
